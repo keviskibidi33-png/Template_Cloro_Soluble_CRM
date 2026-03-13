@@ -26,6 +26,12 @@ api.interceptors.response.use(
     },
 )
 
+
+const extractFilename = (contentDisposition?: string): string | undefined => {
+    const match = typeof contentDisposition === 'string' ? contentDisposition.match(/filename="?([^";]+)"?/i) : null
+    return match?.[1]
+}
+
 export async function saveEnsayo(payload: CloroSolublePayload, ensayoId?: number): Promise<SaveResponse> {
     const { data } = await api.post<SaveResponse>(`/api/${MODULE}/excel`, payload, {
         params: {
@@ -36,7 +42,7 @@ export async function saveEnsayo(payload: CloroSolublePayload, ensayoId?: number
     return data
 }
 
-export async function saveAndDownload(payload: CloroSolublePayload, ensayoId?: number): Promise<Blob> {
+export async function saveAndDownload(payload: CloroSolublePayload, ensayoId?: number): Promise<{ blob: Blob; filename?: string }> {
     const response = await api.post(`/api/${MODULE}/excel`, payload, {
         params: {
             download: true,
@@ -44,7 +50,8 @@ export async function saveAndDownload(payload: CloroSolublePayload, ensayoId?: n
         },
         responseType: 'blob',
     })
-    return response.data
+    const filename = extractFilename(response.headers['content-disposition'])
+    return { blob: response.data, filename }
 }
 
 export async function getEnsayoDetail(ensayoId: number): Promise<EnsayoDetail> {
