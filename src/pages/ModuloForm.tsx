@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { Beaker, Download, Loader2, Trash2 } from 'lucide-react'
@@ -27,6 +27,11 @@ const REVISORES = ['-', 'FABIAN LA ROSA'] as const
 const APROBADORES = ['-', 'IRMA COAQUIRA'] as const
 const SECADO_OPTIONS = ['', 'X'] as const
 const RESULTADO_COUNT = 2
+
+type TableFieldElement = HTMLInputElement | HTMLSelectElement
+type TableNavigationGroup = 'secado' | 'cloro' | 'equipos'
+
+const getTableFieldKey = (table: TableNavigationGroup, row: number, col: number) => `${table}:${row}:${col}`
 
 type ResultadoForm = {
     mililitros_solucion_usada: number | null
@@ -177,6 +182,15 @@ const CLORO_RESULTADO_ROWS: Array<{
         readOnly: true,
     },
 ]
+const CLORO_NAV_ROWS = {
+    a: 0,
+    b: 1,
+    c: 2,
+    e: 3,
+    f: 4,
+    g: 5,
+    h: 6,
+} as const
 
 const getEnsayoId = () => {
     const raw = new URLSearchParams(window.location.search).get('ensayo_id')
@@ -268,6 +282,7 @@ export default function ModuloForm() {
     const [loading, setLoading] = useState(false)
     const [loadingEdit, setLoadingEdit] = useState(false)
     const [ensayoId, setEnsayoId] = useState<number | null>(() => getEnsayoId())
+    const tableFieldRefs = useRef<Record<string, TableFieldElement | null>>({})
 
     useEffect(() => {
         const raw = localStorage.getItem(`${DRAFT_KEY}:${ensayoId ?? 'new'}`)
@@ -323,6 +338,21 @@ export default function ModuloForm() {
             })
         },
         [],
+    )
+
+    const focusTableField = useCallback((table: TableNavigationGroup, row: number, col: number) => {
+        const target = tableFieldRefs.current[getTableFieldKey(table, row, col)]
+        if (!target) return
+        target.focus()
+    }, [])
+
+    const handleTableEnter = useCallback(
+        (event: ReactKeyboardEvent<TableFieldElement>, table: TableNavigationGroup, row: number, col: number) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            focusTableField(table, row + 1, col)
+        },
+        [focusTableField],
     )
 
     const clearAll = useCallback(() => {
@@ -519,6 +549,10 @@ export default function ModuloForm() {
                                                     className={denseInputClass}
                                                     value={form[row.key]}
                                                     onChange={(e) => setField(row.key, e.target.value)}
+                                                    onKeyDown={(e) => handleTableEnter(e, 'secado', idx, 0)}
+                                                    ref={(element) => {
+                                                        tableFieldRefs.current[getTableFieldKey('secado', idx, 0)] = element
+                                                    }}
                                                 >
                                                     {SECADO_OPTIONS.map((opt) => (
                                                         <option key={opt} value={opt}>
@@ -558,6 +592,29 @@ export default function ModuloForm() {
                                                     setField(row.field, parseNum(e.target.value))
                                                 }}
                                                 readOnly={row.readOnly}
+                                                onKeyDown={
+                                                    row.readOnly
+                                                        ? undefined
+                                                        : (e) => handleTableEnter(
+                                                            e,
+                                                            'cloro',
+                                                            CLORO_NAV_ROWS[row.key as keyof typeof CLORO_NAV_ROWS],
+                                                            0,
+                                                        )
+                                                }
+                                                ref={
+                                                    row.readOnly
+                                                        ? undefined
+                                                        : (element) => {
+                                                            tableFieldRefs.current[
+                                                                getTableFieldKey(
+                                                                    'cloro',
+                                                                    CLORO_NAV_ROWS[row.key as keyof typeof CLORO_NAV_ROWS],
+                                                                    0,
+                                                                )
+                                                            ] = element
+                                                        }
+                                                }
                                             />
                                         </td>
                                     </tr>
@@ -586,6 +643,29 @@ export default function ModuloForm() {
                                                         )
                                                     }}
                                                     readOnly={row.readOnly}
+                                                    onKeyDown={
+                                                        row.readOnly
+                                                            ? undefined
+                                                            : (e) => handleTableEnter(
+                                                                e,
+                                                                'cloro',
+                                                                CLORO_NAV_ROWS[row.key as keyof typeof CLORO_NAV_ROWS],
+                                                                idx,
+                                                            )
+                                                    }
+                                                    ref={
+                                                        row.readOnly
+                                                            ? undefined
+                                                            : (element) => {
+                                                                tableFieldRefs.current[
+                                                                    getTableFieldKey(
+                                                                        'cloro',
+                                                                        CLORO_NAV_ROWS[row.key as keyof typeof CLORO_NAV_ROWS],
+                                                                        idx,
+                                                                    )
+                                                                ] = element
+                                                            }
+                                                    }
                                                 />
                                             </td>
                                         ))}
@@ -630,6 +710,10 @@ export default function ModuloForm() {
                                                     className={denseInputClass}
                                                     value={form[row.key]}
                                                     onChange={(e) => setField(row.key, e.target.value)}
+                                                    onKeyDown={(e) => handleTableEnter(e, 'equipos', idx, 0)}
+                                                    ref={(element) => {
+                                                        tableFieldRefs.current[getTableFieldKey('equipos', idx, 0)] = element
+                                                    }}
                                                 />
                                             </td>
                                         </tr>
