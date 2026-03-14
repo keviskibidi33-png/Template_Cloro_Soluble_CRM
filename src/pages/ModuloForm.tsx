@@ -577,7 +577,7 @@ export default function ModuloForm() {
                                     {[
                                         { label: 'SECADO AL AIRE', key: 'condicion_secado_aire' as const },
                                         { label: 'SECADO EN HORNO 60°C', key: 'condicion_secado_horno' as const },
-                                    ].map((row) => (
+                                    ].map((row, idx) => (
                                         <tr key={row.key}>
                                             <td className="border-t border-r border-slate-300 px-2 py-1 text-xs">{row.label}</td>
                                             <td className="border-t border-slate-300 p-1 w-20">
@@ -743,7 +743,7 @@ export default function ModuloForm() {
                                     {[
                                         { label: 'Horno', key: 'equipo_horno_codigo' as const },
                                         { label: 'Balanza 0.01', key: 'equipo_balanza_001_codigo' as const },
-                                    ].map((row) => (
+                                    ].map((row, idx) => (
                                         <tr key={row.key}>
                                             <td className="border-t border-r border-slate-300 px-2 py-1 text-xs">{row.label}</td>
                                             <td className="border-t border-slate-300 p-1">
