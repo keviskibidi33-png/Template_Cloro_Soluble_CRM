@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
-import { Beaker, Download, Loader2, Trash2 } from 'lucide-react'
+import { Beaker, Download, Loader2, Lock, Trash2 } from 'lucide-react'
 import { getEnsayoDetail, saveAndDownload, saveEnsayo } from '@/services/api'
 import type { CloroSolublePayload, CloroSolubleResultado } from '@/types'
 import FormatConfirmModal from '../components/FormatConfirmModal'
@@ -27,6 +27,12 @@ const REVISORES = ['-', 'FABIAN LA ROSA'] as const
 const APROBADORES = ['-', 'IRMA COAQUIRA'] as const
 const SECADO_OPTIONS = ['', 'X'] as const
 const RESULTADO_COUNT = 2
+const FIXED_SHARED_VALUES = {
+    volumen_agua_ml: 300,
+    peso_suelo_seco_g: 100,
+    alicuota_tomada_ml: 30,
+    titulacion_suelo_g: 10,
+} as const
 
 type TableFieldElement = HTMLInputElement | HTMLSelectElement
 type TableNavigationGroup = 'secado' | 'cloro' | 'equipos'
@@ -156,11 +162,45 @@ const CLORO_SHARED_ROWS: Array<{
         | 'ph_ensayo'
         | 'factor_dilucion'
     readOnly?: boolean
+    locked?: boolean
+    fixedValue?: number
 }> = [
-    { key: 'a', label: 'Volumen de agua destilada', unit: '(ml)', field: 'volumen_agua_ml' },
-    { key: 'b', label: 'Peso de suelo seco', unit: '(g)', field: 'peso_suelo_seco_g' },
-    { key: 'c', label: 'Alicuota Tomada', unit: '(ml)', field: 'alicuota_tomada_ml' },
-    { key: 'd', label: 'Titulacion del suelo (b/(a/c))', unit: '', field: 'titulacion_suelo_g', readOnly: true },
+    {
+        key: 'a',
+        label: 'Volumen de agua destilada',
+        unit: '(ml)',
+        field: 'volumen_agua_ml',
+        readOnly: true,
+        locked: true,
+        fixedValue: FIXED_SHARED_VALUES.volumen_agua_ml,
+    },
+    {
+        key: 'b',
+        label: 'Peso de suelo seco',
+        unit: '(g)',
+        field: 'peso_suelo_seco_g',
+        readOnly: true,
+        locked: true,
+        fixedValue: FIXED_SHARED_VALUES.peso_suelo_seco_g,
+    },
+    {
+        key: 'c',
+        label: 'Alicuota Tomada',
+        unit: '(ml)',
+        field: 'alicuota_tomada_ml',
+        readOnly: true,
+        locked: true,
+        fixedValue: FIXED_SHARED_VALUES.alicuota_tomada_ml,
+    },
+    {
+        key: 'd',
+        label: 'Titulacion del suelo (b/(a/c))',
+        unit: '',
+        field: 'titulacion_suelo_g',
+        readOnly: true,
+        locked: true,
+        fixedValue: FIXED_SHARED_VALUES.titulacion_suelo_g,
+    },
     { key: 'e', label: 'Titulacion de la solucion Nitrato de Plata', unit: '', field: 'titulacion_nitrato_plata' },
     { key: 'f', label: 'PH de ensayo', unit: '', field: 'ph_ensayo' },
     { key: 'g', label: 'Factor de Dilucion', unit: '(ml)', field: 'factor_dilucion' },
@@ -229,10 +269,10 @@ const initialState = (): FormState => ({
     realizado_por: '',
     condicion_secado_aire: '',
     condicion_secado_horno: '',
-    volumen_agua_ml: null,
-    peso_suelo_seco_g: null,
-    alicuota_tomada_ml: null,
-    titulacion_suelo_g: null,
+    volumen_agua_ml: FIXED_SHARED_VALUES.volumen_agua_ml,
+    peso_suelo_seco_g: FIXED_SHARED_VALUES.peso_suelo_seco_g,
+    alicuota_tomada_ml: FIXED_SHARED_VALUES.alicuota_tomada_ml,
+    titulacion_suelo_g: FIXED_SHARED_VALUES.titulacion_suelo_g,
     titulacion_nitrato_plata: null,
     ph_ensayo: null,
     factor_dilucion: null,
@@ -264,10 +304,10 @@ const hydrateForm = (payload?: Partial<CloroSolublePayload>): FormState => {
         ...payload,
         condicion_secado_aire: payload.condicion_secado_aire ?? base.condicion_secado_aire,
         condicion_secado_horno: payload.condicion_secado_horno ?? base.condicion_secado_horno,
-        volumen_agua_ml: payload.volumen_agua_ml ?? base.volumen_agua_ml,
-        peso_suelo_seco_g: payload.peso_suelo_seco_g ?? base.peso_suelo_seco_g,
-        alicuota_tomada_ml: payload.alicuota_tomada_ml ?? base.alicuota_tomada_ml,
-        titulacion_suelo_g: payload.titulacion_suelo_g ?? base.titulacion_suelo_g,
+        volumen_agua_ml: FIXED_SHARED_VALUES.volumen_agua_ml,
+        peso_suelo_seco_g: FIXED_SHARED_VALUES.peso_suelo_seco_g,
+        alicuota_tomada_ml: FIXED_SHARED_VALUES.alicuota_tomada_ml,
+        titulacion_suelo_g: FIXED_SHARED_VALUES.titulacion_suelo_g,
         titulacion_nitrato_plata: payload.titulacion_nitrato_plata ?? base.titulacion_nitrato_plata,
         ph_ensayo: payload.ph_ensayo ?? base.ph_ensayo,
         factor_dilucion: payload.factor_dilucion ?? base.factor_dilucion,
@@ -361,13 +401,7 @@ export default function ModuloForm() {
         setForm(initialState())
     }, [ensayoId])
 
-    const computedTitulacion = useMemo(() => {
-        if (form.volumen_agua_ml == null || form.peso_suelo_seco_g == null || form.alicuota_tomada_ml == null) return null
-        if (form.volumen_agua_ml === 0 || form.alicuota_tomada_ml === 0) return null
-        return round(form.peso_suelo_seco_g / (form.volumen_agua_ml / form.alicuota_tomada_ml), 4)
-    }, [form.volumen_agua_ml, form.peso_suelo_seco_g, form.alicuota_tomada_ml])
-
-    const resolvedTitulacion = form.titulacion_suelo_g ?? computedTitulacion
+    const resolvedTitulacion = FIXED_SHARED_VALUES.titulacion_suelo_g
     const resolvedResultados = form.resultados.map((resultado) =>
         resolveResultado(resultado, {
             titulacion_nitrato_plata: form.titulacion_nitrato_plata,
@@ -396,6 +430,7 @@ export default function ModuloForm() {
                 const resultadoPrincipal = resultados[0] ?? createEmptyResultado()
                 const payload: CloroSolublePayload = {
                     ...form,
+                    ...FIXED_SHARED_VALUES,
                     resultados,
                     titulacion_suelo_g: resolvedTitulacion,
                     mililitros_solucion_usada: resultadoPrincipal.mililitros_solucion_usada,
@@ -440,6 +475,7 @@ export default function ModuloForm() {
         'h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-900 shadow-sm transition focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500/35'
 
     const readOnlyInputClass = 'h-8 w-full rounded-md border border-slate-200 bg-slate-100 px-2 text-sm text-slate-800'
+    const fixedInputClass = 'h-8 w-full rounded-md border border-slate-200 bg-slate-100 px-2 pr-8 text-sm font-medium text-slate-800 cursor-not-allowed'
 
     return (
         <div className="min-h-screen bg-slate-100 p-4 md:p-6">
@@ -582,40 +618,45 @@ export default function ModuloForm() {
                                         <td className="border-t border-r border-slate-300 px-2 py-1 text-xs">{row.label}</td>
                                         <td className="border-t border-r border-slate-300 px-2 py-1 text-center text-xs">{row.unit}</td>
                                         <td className="border-t border-slate-300 p-1" colSpan={2}>
-                                            <input
-                                                type="number"
-                                                step="any"
-                                                className={row.readOnly ? readOnlyInputClass : denseInputClass}
-                                                value={(row.field === 'titulacion_suelo_g' ? resolvedTitulacion : form[row.field]) ?? ''}
-                                                onChange={(e) => {
-                                                    if (row.readOnly) return
-                                                    setField(row.field, parseNum(e.target.value))
-                                                }}
-                                                readOnly={row.readOnly}
-                                                onKeyDown={
-                                                    row.readOnly
-                                                        ? undefined
-                                                        : (e) => handleTableEnter(
-                                                            e,
-                                                            'cloro',
-                                                            CLORO_NAV_ROWS[row.key as keyof typeof CLORO_NAV_ROWS],
-                                                            0,
-                                                        )
-                                                }
-                                                ref={
-                                                    row.readOnly
-                                                        ? undefined
-                                                        : (element) => {
-                                                            tableFieldRefs.current[
-                                                                getTableFieldKey(
-                                                                    'cloro',
-                                                                    CLORO_NAV_ROWS[row.key as keyof typeof CLORO_NAV_ROWS],
-                                                                    0,
-                                                                )
-                                                            ] = element
-                                                        }
-                                                }
-                                            />
+                                            <div className="relative">
+                                                <input
+                                                    type="number"
+                                                    step="any"
+                                                    className={row.locked ? fixedInputClass : row.readOnly ? readOnlyInputClass : denseInputClass}
+                                                    value={row.fixedValue ?? (form[row.field] ?? '')}
+                                                    onChange={(e) => {
+                                                        if (row.readOnly) return
+                                                        setField(row.field, parseNum(e.target.value))
+                                                    }}
+                                                    readOnly={row.readOnly}
+                                                    onKeyDown={
+                                                        row.readOnly
+                                                            ? undefined
+                                                            : (e) => handleTableEnter(
+                                                                e,
+                                                                'cloro',
+                                                                CLORO_NAV_ROWS[row.key as keyof typeof CLORO_NAV_ROWS],
+                                                                0,
+                                                            )
+                                                    }
+                                                    ref={
+                                                        row.readOnly
+                                                            ? undefined
+                                                            : (element) => {
+                                                                tableFieldRefs.current[
+                                                                    getTableFieldKey(
+                                                                        'cloro',
+                                                                        CLORO_NAV_ROWS[row.key as keyof typeof CLORO_NAV_ROWS],
+                                                                        0,
+                                                                    )
+                                                                ] = element
+                                                            }
+                                                    }
+                                                />
+                                                {row.locked ? (
+                                                    <Lock className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                                                ) : null}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
