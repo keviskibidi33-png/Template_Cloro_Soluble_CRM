@@ -382,17 +382,39 @@ export default function ModuloForm() {
 
     const focusTableField = useCallback((table: TableNavigationGroup, row: number, col: number) => {
         const target = tableFieldRefs.current[getTableFieldKey(table, row, col)]
-        if (!target) return
+        if (!target) return false
         target.focus()
+        return true
+    }, [])
+
+    const focusNextTableField = useCallback((table: TableNavigationGroup, row: number, col: number) => {
+        const fields = Object.entries(tableFieldRefs.current)
+            .flatMap(([key, element]) => {
+                if (!element) return []
+                const [fieldTable, fieldRow, fieldCol] = key.split(':')
+                const parsedRow = Number(fieldRow)
+                const parsedCol = Number(fieldCol)
+                if (fieldTable !== table || !Number.isInteger(parsedRow) || !Number.isInteger(parsedCol)) return []
+                return [{ row: parsedRow, col: parsedCol, element }]
+            })
+            .sort((a, b) => (a.col === b.col ? a.row - b.row : a.col - b.col))
+
+        const currentIndex = fields.findIndex((field) => field.row === row && field.col === col)
+        const nextField = currentIndex >= 0 ? fields[currentIndex + 1] : null
+        if (!nextField) return false
+
+        nextField.element.focus()
+        return true
     }, [])
 
     const handleTableEnter = useCallback(
         (event: ReactKeyboardEvent<TableFieldElement>, table: TableNavigationGroup, row: number, col: number) => {
             if (event.key !== 'Enter') return
             event.preventDefault()
-            focusTableField(table, row + 1, col)
+            if (focusTableField(table, row + 1, col)) return
+            focusNextTableField(table, row, col)
         },
-        [focusTableField],
+        [focusNextTableField, focusTableField],
     )
 
     const clearAll = useCallback(() => {
