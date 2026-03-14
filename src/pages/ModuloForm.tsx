@@ -498,6 +498,9 @@ export default function ModuloForm() {
 
     const readOnlyInputClass = 'h-8 w-full rounded-md border border-slate-200 bg-slate-100 px-2 text-sm text-slate-800'
     const fixedInputClass = 'h-8 w-full rounded-md border border-slate-200 bg-slate-100 px-2 pr-8 text-sm font-medium text-slate-800 cursor-not-allowed'
+    const compactInputClass = `${denseInputClass} text-center`
+    const compactReadOnlyInputClass = `${readOnlyInputClass} text-center`
+    const compactFixedInputClass = `${fixedInputClass} pl-8 text-center`
 
     return (
         <div className="min-h-screen bg-slate-100 p-4 md:p-6">
@@ -539,7 +542,7 @@ export default function ModuloForm() {
                                 <tr>
                                     <td className="border-r border-t border-slate-300 p-1" colSpan={2}>
                                         <input
-                                            className={denseInputClass}
+                                            className={`${denseInputClass} text-center`}
                                             value={form.muestra}
                                             onChange={(e) => setField('muestra', e.target.value)}
                                             onBlur={() => setField('muestra', normalizeMuestraCode(form.muestra))}
@@ -549,7 +552,7 @@ export default function ModuloForm() {
                                     </td>
                                     <td className="border-r border-t border-slate-300 p-1">
                                         <input
-                                            className={denseInputClass}
+                                            className={`${denseInputClass} text-center`}
                                             value={form.numero_ot}
                                             onChange={(e) => setField('numero_ot', e.target.value)}
                                             onBlur={() => setField('numero_ot', normalizeNumeroOtCode(form.numero_ot))}
@@ -559,7 +562,7 @@ export default function ModuloForm() {
                                     </td>
                                     <td className="border-r border-t border-slate-300 p-1" colSpan={2}>
                                         <input
-                                            className={denseInputClass}
+                                            className={`${denseInputClass} text-center`}
                                             value={form.fecha_ensayo}
                                             onChange={(e) => setField('fecha_ensayo', e.target.value)}
                                             onBlur={() => setField('fecha_ensayo', normalizeFlexibleDate(form.fecha_ensayo))}
@@ -570,7 +573,7 @@ export default function ModuloForm() {
                                     </td>
                                     <td className="border-t border-slate-300 p-1" colSpan={2}>
                                         <input
-                                            className={denseInputClass}
+                                            className={`${denseInputClass} text-center`}
                                             value={form.realizado_por}
                                             onChange={(e) => setField('realizado_por', e.target.value)}
                                             autoComplete="off"
@@ -604,7 +607,7 @@ export default function ModuloForm() {
                                             <td className="border-t border-r border-slate-300 px-2 py-1 text-xs">{row.label}</td>
                                             <td className="border-t border-slate-300 p-1 w-20">
                                                 <select
-                                                    className={denseInputClass}
+                                                    className={compactInputClass}
                                                     value={form[row.key]}
                                                     onChange={(e) => setField(row.key, e.target.value)}
                                                     onKeyDown={(e) => handleTableEnter(e, 'secado', idx, 0)}
@@ -644,7 +647,13 @@ export default function ModuloForm() {
                                                 <input
                                                     type="number"
                                                     step="any"
-                                                    className={row.locked ? fixedInputClass : row.readOnly ? readOnlyInputClass : denseInputClass}
+                                                    className={
+                                                        row.locked
+                                                            ? compactFixedInputClass
+                                                            : row.readOnly
+                                                                ? compactReadOnlyInputClass
+                                                                : compactInputClass
+                                                    }
                                                     value={row.fixedValue ?? (form[row.field] ?? '')}
                                                     onChange={(e) => {
                                                         if (row.readOnly) return
@@ -695,7 +704,7 @@ export default function ModuloForm() {
                                                 <input
                                                     type="number"
                                                     step="any"
-                                                    className={row.readOnly ? readOnlyInputClass : denseInputClass}
+                                                    className={row.readOnly ? compactReadOnlyInputClass : compactInputClass}
                                                     value={(row.readOnly ? resolvedResultados[idx][row.field] : resultado[row.field]) ?? ''}
                                                     onChange={(e) => {
                                                         if (row.readOnly) return
