@@ -1,3 +1,8 @@
+export type CloroSolubleResultado = {
+    mililitros_solucion_usada?: number | null
+    contenido_cloruros_ppm?: number | null
+}
+
 export type CloroSolublePayload = {
     muestra: string
     numero_ot: string
@@ -6,6 +11,7 @@ export type CloroSolublePayload = {
     cliente?: string
     condicion_secado_aire?: string
     condicion_secado_horno?: string
+    resultados?: CloroSolubleResultado[]
     volumen_agua_ml?: number | null
     peso_suelo_seco_g?: number | null
     alicuota_tomada_ml?: number | null

@@ -3,7 +3,7 @@ import axios from 'axios'
 import toast from 'react-hot-toast'
 import { Beaker, Download, Loader2, Trash2 } from 'lucide-react'
 import { getEnsayoDetail, saveAndDownload, saveEnsayo } from '@/services/api'
-import type { CloroSolublePayload } from '@/types'
+import type { CloroSolublePayload, CloroSolubleResultado } from '@/types'
 import FormatConfirmModal from '../components/FormatConfirmModal'
 
 
@@ -26,6 +26,32 @@ const DEBOUNCE_MS = 700
 const REVISORES = ['-', 'FABIAN LA ROSA'] as const
 const APROBADORES = ['-', 'IRMA COAQUIRA'] as const
 const SECADO_OPTIONS = ['', 'X'] as const
+const RESULTADO_COUNT = 2
+
+type ResultadoForm = {
+    mililitros_solucion_usada: number | null
+    contenido_cloruros_ppm: number | null
+}
+
+const createEmptyResultado = (): ResultadoForm => ({
+    mililitros_solucion_usada: null,
+    contenido_cloruros_ppm: null,
+})
+
+const hasResultadoData = (resultado: Partial<ResultadoForm> | undefined): boolean => {
+    if (!resultado) return false
+    return [resultado.mililitros_solucion_usada, resultado.contenido_cloruros_ppm].some(
+        (value) => value !== null && value !== undefined && value !== '',
+    )
+}
+
+const toResultadoForm = (resultado?: CloroSolubleResultado | null): ResultadoForm => ({
+    mililitros_solucion_usada: resultado?.mililitros_solucion_usada ?? null,
+    contenido_cloruros_ppm: resultado?.contenido_cloruros_ppm ?? null,
+})
+
+const normalizeResultados = (resultados?: CloroSolubleResultado[]): ResultadoForm[] =>
+    Array.from({ length: RESULTADO_COUNT }, (_, idx) => toResultadoForm(resultados?.[idx]))
 
 const getCurrentYearShort = () => new Date().getFullYear().toString().slice(-2)
 
@@ -90,6 +116,68 @@ const round = (value: number, decimals = 4) => {
     return Math.round(value * factor) / factor
 }
 
+const resolveResultado = (
+    resultado: ResultadoForm,
+    shared: {
+        titulacion_nitrato_plata: number | null
+        factor_dilucion: number | null
+        titulacion_suelo_g: number | null
+    },
+): ResultadoForm => {
+    const contenido = resultado.mililitros_solucion_usada != null
+        && shared.titulacion_nitrato_plata != null
+        && shared.factor_dilucion != null
+        && shared.titulacion_suelo_g != null
+        && shared.titulacion_suelo_g !== 0
+        ? round((((resultado.mililitros_solucion_usada - 0.2) * shared.titulacion_nitrato_plata * 1000) / shared.titulacion_suelo_g) * shared.factor_dilucion, 3)
+        : resultado.contenido_cloruros_ppm ?? null
+
+    return {
+        ...resultado,
+        contenido_cloruros_ppm: contenido,
+    }
+}
+
+const CLORO_SHARED_ROWS: Array<{
+    key: string
+    label: string
+    unit: string
+    field:
+        | 'volumen_agua_ml'
+        | 'peso_suelo_seco_g'
+        | 'alicuota_tomada_ml'
+        | 'titulacion_suelo_g'
+        | 'titulacion_nitrato_plata'
+        | 'ph_ensayo'
+        | 'factor_dilucion'
+    readOnly?: boolean
+}> = [
+    { key: 'a', label: 'Volumen de agua destilada', unit: '(ml)', field: 'volumen_agua_ml' },
+    { key: 'b', label: 'Peso de suelo seco', unit: '(g)', field: 'peso_suelo_seco_g' },
+    { key: 'c', label: 'Alicuota Tomada', unit: '(ml)', field: 'alicuota_tomada_ml' },
+    { key: 'd', label: 'Titulacion del suelo (b/(a/c))', unit: '', field: 'titulacion_suelo_g', readOnly: true },
+    { key: 'e', label: 'Titulacion de la solucion Nitrato de Plata', unit: '', field: 'titulacion_nitrato_plata' },
+    { key: 'f', label: 'PH de ensayo', unit: '', field: 'ph_ensayo' },
+    { key: 'g', label: 'Factor de Dilucion', unit: '(ml)', field: 'factor_dilucion' },
+]
+
+const CLORO_RESULTADO_ROWS: Array<{
+    key: string
+    label: string
+    unit: string
+    field: keyof ResultadoForm
+    readOnly?: boolean
+}> = [
+    { key: 'h', label: 'Mililitros de solucion usada', unit: '(ml)', field: 'mililitros_solucion_usada' },
+    {
+        key: 'i',
+        label: 'Contenido de Cloruros (((h-0.2)*e*1000)/d*g)',
+        unit: '(ppm)',
+        field: 'contenido_cloruros_ppm',
+        readOnly: true,
+    },
+]
+
 const getEnsayoId = () => {
     const raw = new URLSearchParams(window.location.search).get('ensayo_id')
     const n = Number(raw)
@@ -110,8 +198,7 @@ type FormState = {
     titulacion_nitrato_plata: number | null
     ph_ensayo: number | null
     factor_dilucion: number | null
-    mililitros_solucion_usada: number | null
-    contenido_cloruros_ppm: number | null
+    resultados: ResultadoForm[]
     observaciones: string
     equipo_horno_codigo: string
     equipo_balanza_001_codigo: string
@@ -135,8 +222,7 @@ const initialState = (): FormState => ({
     titulacion_nitrato_plata: null,
     ph_ensayo: null,
     factor_dilucion: null,
-    mililitros_solucion_usada: null,
-    contenido_cloruros_ppm: null,
+    resultados: Array.from({ length: RESULTADO_COUNT }, () => createEmptyResultado()),
     observaciones: '',
     equipo_horno_codigo: '',
     equipo_balanza_001_codigo: '',
@@ -150,6 +236,15 @@ const hydrateForm = (payload?: Partial<CloroSolublePayload>): FormState => {
     const base = initialState()
     if (!payload) return base
 
+    const legacyResultado = toResultadoForm({
+        mililitros_solucion_usada: payload.mililitros_solucion_usada,
+        contenido_cloruros_ppm: payload.contenido_cloruros_ppm,
+    })
+    const resultados = normalizeResultados(payload.resultados)
+    if ((!payload.resultados || payload.resultados.length === 0) && hasResultadoData(legacyResultado)) {
+        resultados[0] = legacyResultado
+    }
+
     return {
         ...base,
         ...payload,
@@ -162,8 +257,7 @@ const hydrateForm = (payload?: Partial<CloroSolublePayload>): FormState => {
         titulacion_nitrato_plata: payload.titulacion_nitrato_plata ?? base.titulacion_nitrato_plata,
         ph_ensayo: payload.ph_ensayo ?? base.ph_ensayo,
         factor_dilucion: payload.factor_dilucion ?? base.factor_dilucion,
-        mililitros_solucion_usada: payload.mililitros_solucion_usada ?? base.mililitros_solucion_usada,
-        contenido_cloruros_ppm: payload.contenido_cloruros_ppm ?? base.contenido_cloruros_ppm,
+        resultados,
         equipo_horno_codigo: payload.equipo_horno_codigo ?? base.equipo_horno_codigo,
         equipo_balanza_001_codigo: payload.equipo_balanza_001_codigo ?? base.equipo_balanza_001_codigo,
     }
@@ -219,6 +313,18 @@ export default function ModuloForm() {
         setForm((prev) => ({ ...prev, [key]: value }))
     }, [])
 
+    const setResultadoField = useCallback(
+        <K extends keyof ResultadoForm>(resultadoIndex: number, key: K, value: ResultadoForm[K]) => {
+            setForm((prev) => {
+                const resultados = prev.resultados.map((resultado, idx) =>
+                    idx === resultadoIndex ? { ...resultado, [key]: value } : resultado,
+                )
+                return { ...prev, resultados }
+            })
+        },
+        [],
+    )
+
     const clearAll = useCallback(() => {
         if (!window.confirm('Se limpiaran los datos no guardados. Deseas continuar?')) return
         localStorage.removeItem(`${DRAFT_KEY}:${ensayoId ?? 'new'}`)
@@ -232,25 +338,13 @@ export default function ModuloForm() {
     }, [form.volumen_agua_ml, form.peso_suelo_seco_g, form.alicuota_tomada_ml])
 
     const resolvedTitulacion = form.titulacion_suelo_g ?? computedTitulacion
-
-    const computedContenido = useMemo(() => {
-        if (
-            form.mililitros_solucion_usada == null ||
-            form.titulacion_nitrato_plata == null ||
-            resolvedTitulacion == null ||
-            resolvedTitulacion === 0 ||
-            form.factor_dilucion == null
-        ) {
-            return null
-        }
-        const h = form.mililitros_solucion_usada
-        const e = form.titulacion_nitrato_plata
-        const d = resolvedTitulacion
-        const g = form.factor_dilucion
-        return round(((h - 0.2) * e * 1000) / d * g, 3)
-    }, [form.mililitros_solucion_usada, form.titulacion_nitrato_plata, form.factor_dilucion, resolvedTitulacion])
-
-    const resolvedContenido = form.contenido_cloruros_ppm ?? computedContenido
+    const resolvedResultados = form.resultados.map((resultado) =>
+        resolveResultado(resultado, {
+            titulacion_nitrato_plata: form.titulacion_nitrato_plata,
+            factor_dilucion: form.factor_dilucion,
+            titulacion_suelo_g: resolvedTitulacion,
+        }),
+    )
     const [pendingFormatAction, setPendingFormatAction] = useState<boolean | null>(null)
 
 
@@ -262,10 +356,20 @@ export default function ModuloForm() {
             }
             setLoading(true)
             try {
+                const resultados = form.resultados.map((resultado) =>
+                    resolveResultado(resultado, {
+                        titulacion_nitrato_plata: form.titulacion_nitrato_plata,
+                        factor_dilucion: form.factor_dilucion,
+                        titulacion_suelo_g: resolvedTitulacion,
+                    }),
+                )
+                const resultadoPrincipal = resultados[0] ?? createEmptyResultado()
                 const payload: CloroSolublePayload = {
                     ...form,
+                    resultados,
                     titulacion_suelo_g: resolvedTitulacion,
-                    contenido_cloruros_ppm: resolvedContenido,
+                    mililitros_solucion_usada: resultadoPrincipal.mililitros_solucion_usada,
+                    contenido_cloruros_ppm: resultadoPrincipal.contenido_cloruros_ppm,
                 }
 
                 if (download) {
@@ -298,7 +402,6 @@ export default function ModuloForm() {
         [
             ensayoId,
             form,
-            resolvedContenido,
             resolvedTitulacion,
         ],
     )
@@ -436,99 +539,56 @@ export default function ModuloForm() {
                                 <col />
                                 <col className="w-20" />
                                 <col className="w-44" />
+                                <col className="w-44" />
                             </colgroup>
                             <tbody>
-                                {[
-                                    {
-                                        key: 'a',
-                                        label: 'Volumen de agua destilada',
-                                        unit: '(ml)',
-                                        field: 'volumen_agua_ml' as const,
-                                        value: form.volumen_agua_ml,
-                                        readonly: false,
-                                    },
-                                    {
-                                        key: 'b',
-                                        label: 'Peso de suelo seco',
-                                        unit: '(g)',
-                                        field: 'peso_suelo_seco_g' as const,
-                                        value: form.peso_suelo_seco_g,
-                                        readonly: false,
-                                    },
-                                    {
-                                        key: 'c',
-                                        label: 'Alicuota Tomada',
-                                        unit: '(ml)',
-                                        field: 'alicuota_tomada_ml' as const,
-                                        value: form.alicuota_tomada_ml,
-                                        readonly: false,
-                                    },
-                                    {
-                                        key: 'd',
-                                        label: 'Titulacion del suelo (b/(a/c))',
-                                        unit: '',
-                                        field: 'titulacion_suelo_g' as const,
-                                        value: resolvedTitulacion,
-                                        readonly: true,
-                                    },
-                                    {
-                                        key: 'e',
-                                        label: 'Titulacion de la solucion Nitrato de Plata',
-                                        unit: '',
-                                        field: 'titulacion_nitrato_plata' as const,
-                                        value: form.titulacion_nitrato_plata,
-                                        readonly: false,
-                                    },
-                                    {
-                                        key: 'f',
-                                        label: 'PH de ensayo',
-                                        unit: '',
-                                        field: 'ph_ensayo' as const,
-                                        value: form.ph_ensayo,
-                                        readonly: false,
-                                    },
-                                    {
-                                        key: 'g',
-                                        label: 'Factor de Dilucion',
-                                        unit: '(ml)',
-                                        field: 'factor_dilucion' as const,
-                                        value: form.factor_dilucion,
-                                        readonly: false,
-                                    },
-                                    {
-                                        key: 'h',
-                                        label: 'Mililitros de solucion usada',
-                                        unit: '(ml)',
-                                        field: 'mililitros_solucion_usada' as const,
-                                        value: form.mililitros_solucion_usada,
-                                        readonly: false,
-                                    },
-                                    {
-                                        key: 'i',
-                                        label: 'Contenido de Cloruros (((h-0.2)*e*1000)/d*g)',
-                                        unit: '(ppm)',
-                                        field: 'contenido_cloruros_ppm' as const,
-                                        value: resolvedContenido,
-                                        readonly: true,
-                                    },
-                                ].map((row) => (
+                                {CLORO_SHARED_ROWS.map((row) => (
                                     <tr key={row.key}>
                                         <td className="border-t border-r border-slate-300 px-2 py-1 text-xs font-semibold">{row.key}</td>
                                         <td className="border-t border-r border-slate-300 px-2 py-1 text-xs">{row.label}</td>
                                         <td className="border-t border-r border-slate-300 px-2 py-1 text-center text-xs">{row.unit}</td>
-                                        <td className="border-t border-slate-300 p-1">
+                                        <td className="border-t border-slate-300 p-1" colSpan={2}>
                                             <input
                                                 type="number"
                                                 step="any"
-                                                className={row.readonly ? readOnlyInputClass : denseInputClass}
-                                                value={row.value ?? ''}
+                                                className={row.readOnly ? readOnlyInputClass : denseInputClass}
+                                                value={(row.field === 'titulacion_suelo_g' ? resolvedTitulacion : form[row.field]) ?? ''}
                                                 onChange={(e) => {
-                                                    if (row.readonly) return
+                                                    if (row.readOnly) return
                                                     setField(row.field, parseNum(e.target.value))
                                                 }}
-                                                readOnly={row.readonly}
+                                                readOnly={row.readOnly}
                                             />
                                         </td>
+                                    </tr>
+                                ))}
+                                {CLORO_RESULTADO_ROWS.map((row) => (
+                                    <tr key={row.key}>
+                                        <td className="border-t border-r border-slate-300 px-2 py-1 text-xs font-semibold">{row.key}</td>
+                                        <td className="border-t border-r border-slate-300 px-2 py-1 text-xs">{row.label}</td>
+                                        <td className="border-t border-r border-slate-300 px-2 py-1 text-center text-xs">{row.unit}</td>
+                                        {form.resultados.map((resultado, idx) => (
+                                            <td
+                                                key={`${row.key}-${idx}`}
+                                                className={idx < RESULTADO_COUNT - 1 ? 'border-t border-r border-slate-300 p-1' : 'border-t border-slate-300 p-1'}
+                                            >
+                                                <input
+                                                    type="number"
+                                                    step="any"
+                                                    className={row.readOnly ? readOnlyInputClass : denseInputClass}
+                                                    value={(row.readOnly ? resolvedResultados[idx][row.field] : resultado[row.field]) ?? ''}
+                                                    onChange={(e) => {
+                                                        if (row.readOnly) return
+                                                        setResultadoField(
+                                                            idx,
+                                                            row.field,
+                                                            parseNum(e.target.value) as ResultadoForm[typeof row.field],
+                                                        )
+                                                    }}
+                                                    readOnly={row.readOnly}
+                                                />
+                                            </td>
+                                        ))}
                                     </tr>
                                 ))}
                             </tbody>
