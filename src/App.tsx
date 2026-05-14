@@ -14,12 +14,74 @@ function AccessGate({ children }: { children: ReactNode }) {
 
         if (tokenFromUrl) {
             localStorage.setItem('token', tokenFromUrl)
+            setIsAuthorized(true)
+            return
         }
 
-        const token = tokenFromUrl || localStorage.getItem('token')
+        const token = localStorage.getItem('token')
         const isEmbedded = window.parent !== window
-        const authorized = Boolean(tokenFromUrl || (isEmbedded && token))
-        setIsAuthorized(authorized)
+        if (token) {
+            setIsAuthorized(true)
+            return
+        }
+
+        if (!isEmbedded) {
+            setIsAuthorized(false)
+            return
+        }
+
+        let settled = false
+        const requestId = `access-gate-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+        const cleanup = () => {
+            window.removeEventListener('message', onMessage)
+            clearTimeout(timeoutId)
+        }
+
+        const finish = (authorized: boolean, refreshedToken?: string | null) => {
+            if (settled) return
+            settled = true
+            cleanup()
+            if (refreshedToken) {
+                localStorage.setItem('token', refreshedToken)
+            }
+            setIsAuthorized(authorized)
+        }
+
+        const onMessage = (event: MessageEvent) => {
+            if (event.data?.type !== 'TOKEN_REFRESH') return
+
+            const responseRequestId = typeof event.data?.requestId === 'string' ? event.data.requestId : null
+            if (responseRequestId && responseRequestId !== requestId) return
+
+            const refreshedToken = typeof event.data?.token === 'string' && event.data.token.trim()
+                ? event.data.token.trim()
+                : null
+
+            finish(!!refreshedToken, refreshedToken)
+        }
+
+        const timeoutId = window.setTimeout(() => {
+            finish(false)
+        }, 2500)
+
+        window.addEventListener('message', onMessage)
+
+        try {
+            window.parent.postMessage(
+                {
+                    type: 'TOKEN_REFRESH_REQUEST',
+                    requestId,
+                    source: 'access_gate',
+                    reason: 'mount-auth',
+                },
+                '*',
+            )
+        } catch {
+            finish(false)
+        }
+
+        return cleanup
     }, [])
 
     if (isAuthorized === null) return null
